@@ -1,0 +1,147 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <ESP8266WiFi.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+
+// OLED ekran ayarları
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET    -1
+#define SSD1306_I2C 0x3C  // OLED ekran I2C adresi
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// WiFi bağlantı bilgileri
+const char* ssid = "WiFiAgAdiniz";
+const char* password = "WiFiSifreniz";
+
+// NTP istemcisi
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 3600, 60000);
+
+// Gündüz ve gece modu saatleri
+const int dayModeStartHour = 7;
+const int dayModeEndHour = 19;
+
+void connectToWiFi() {
+  Serial.print("WiFi bağlanılıyor");
+  WiFi.begin(ssid, password);
+
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("");
+    Serial.println("WiFi bağlantısı başarıyla kuruldu");
+  } else {
+    Serial.println("");
+    Serial.println("WiFi bağlantısı kurulamadı. Lütfen bağlantıları kontrol edin.");
+  }
+}
+
+void updateSignalQuality() {
+  int signalStrength = WiFi.RSSI(); // RSSI değeri alınır
+  int maxSignalStrength = -50; // Maksimum iyi sinyal değeri
+  int minSignalStrength = -100; // Minimum sinyal değeri
+
+  // Sinyal kalitesini yüzde cinsinden hesapla
+  int signalQualityPercentage = map(signalStrength, minSignalStrength, maxSignalStrength, 0, 100);
+
+  // Sinyal kalitesini sınırla
+  signalQualityPercentage = constrain(signalQualityPercentage, 0, 100);
+
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 20);
+  display.print("Sinyal: ");
+  display.print(signalQualityPercentage);
+  display.print("%");
+}
+
+
+
+
+void setDisplayMode() {
+  int currentHour = timeClient.getHours();
+  if (currentHour >= dayModeStartHour && currentHour < dayModeEndHour) {
+    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    display.fillScreen(SSD1306_BLACK);
+  } else {
+    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    display.fillScreen(SSD1306_BLACK);
+  }
+}
+
+void printTwoDigits(int value) {
+  if (value < 10) {
+    display.print("0");
+  }
+  display.print(value);
+}
+
+void displayWiFiStatus() {
+  int signalStrength = WiFi.RSSI(); // RSSI değeri alınır
+  int signalQualityPercentage = map(signalStrength, -100, -50, 0, 100); // Sinyal kalitesi yüzdesi hesaplanır
+
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 20);
+  display.print("Sinyal: ");
+  display.print(signalQualityPercentage);
+  display.print("%");
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  if (!display.begin(SSD1306_I2C, 0x3C)) {
+    Serial.println(F("SSD1306 başlatılamadı. Lütfen bağlantıları kontrol edin."));
+    for (;;);
+  }
+
+  connectToWiFi();
+  timeClient.begin();
+  timeClient.setTimeOffset(3 * 3600);
+}
+
+void loop() {
+  if (WiFi.status() != WL_CONNECTED) {
+    connectToWiFi();
+    delay(5000);
+    return;
+  }
+
+  timeClient.update();
+  updateSignalQuality();
+  setDisplayMode();
+
+  unsigned long unixTime = timeClient.getEpochTime();
+  struct tm *timeInfo = localtime(reinterpret_cast<time_t *>(&unixTime));
+
+  display.clearDisplay(); // Ekranı temizle
+
+  display.setCursor(0, 0);
+  display.print("Saat: ");
+  printTwoDigits(timeInfo->tm_hour);
+  display.print(":");
+  printTwoDigits(timeInfo->tm_min);
+  display.print(":");
+  printTwoDigits(timeInfo->tm_sec);
+  display.setCursor(0, 10);
+  display.print("Tarih: ");
+  printTwoDigits(timeInfo->tm_mday);
+  display.print("/");
+  printTwoDigits(timeInfo->tm_mon + 1);
+  display.print("/");
+  display.print(timeInfo->tm_year + 1900);
+
+  displayWiFiStatus(); // WiFi bağlantı durumu göstergesini çağır
+
+  display.display();
+  delay(1000);
+}
